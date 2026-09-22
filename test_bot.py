@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import json
 from decimal import Decimal
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,8 +30,8 @@ class FakeAPI:
     def holding_quantity(self):
         return self.held
 
-    def quote_krw(self):
-        return self.price / 1400, Decimal(1400), self.price
+    def quote_krw(self, held=False):
+        return self.price / 1400, Decimal(1400), self.price, "best bid" if held else "best ask", 1
 
     def regular_market_open(self):
         return True
@@ -47,6 +48,21 @@ class FakeAPI:
 
 
 class BotTests(unittest.TestCase):
+    def test_fresh_orderbook_used_when_last_trade_is_stale(self):
+        now = datetime.now(timezone.utc)
+        fresh = now.isoformat()
+        stale = (now - timedelta(minutes=4)).isoformat()
+        api = bot.TossAPI("", "", 1)
+        def fake_call(_method, path, _params):
+            if path.endswith("orderbook"):
+                return {"result": {"timestamp": fresh, "currency": "USD",
+                                   "asks": [{"price": "36.63"}], "bids": [{"price": "36.61"}]}}
+            return {"result": [{"symbol": "NVDL", "timestamp": stale,
+                                "lastPrice": "36.60", "currency": "USD"}]}
+        api.call = fake_call
+        self.assertEqual(api.quote_usd(False)[0], Decimal("36.63"))
+        self.assertEqual(api.quote_usd(True)[0], Decimal("36.61"))
+
     def test_live_krw_estimate_requires_explicit_acknowledgment(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
@@ -89,7 +105,7 @@ class BotTests(unittest.TestCase):
             def regular_market_open(self):
                 return False
 
-            def quote_krw(self):
+            def quote_krw(self, held=False):
                 raise RuntimeError("Stale price")
 
         with tempfile.TemporaryDirectory() as directory, patch.object(bot, "STATE_PATH", Path(directory) / "state.json"):

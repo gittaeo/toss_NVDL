@@ -150,23 +150,39 @@ class TossAPI:
         self.token = data["access_token"]
         self.expiry = time.time() + int(data["expires_in"])
 
-    def quote_usd(self):
-        price = self.call("GET", "/api/v1/prices", {"symbols": "NVDL"})["result"]
-        if len(price) != 1 or price[0].get("symbol", "").upper() != "NVDL" or price[0].get("currency") != "USD":
+    def quote_usd(self, held=False):
+        try:
+            book = self.call("GET", "/api/v1/orderbook", {"symbol": "NVDL"})["result"]
+        except (RuntimeError, error.URLError):
+            book = {}
+        book_age = self._age_seconds(book.get("timestamp"))
+        if book.get("currency") == "USD" and book_age is not None and -30 <= book_age <= 120:
+            asks, bids = book.get("asks") or [], book.get("bids") or []
+            if asks and bids:
+                ask, bid = dec(asks[0]["price"]), dec(bids[0]["price"])
+                if 0 < bid <= ask and (ask - bid) / bid <= Decimal("0.03"):
+                    return (bid if held else ask), ("best bid" if held else "best ask"), book_age
+        prices = self.call("GET", "/api/v1/prices", {"symbols": "NVDL"})["result"]
+        if len(prices) != 1 or prices[0].get("symbol", "").upper() != "NVDL" or prices[0].get("currency") != "USD":
             raise RuntimeError("Unexpected NVDL price response")
-        timestamp = price[0].get("timestamp")
-        if not timestamp:
-            raise RuntimeError("Price has no timestamp; market may be closed")
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(timestamp.replace("Z", "+00:00"))).total_seconds()
-        if age < -30 or age > 120:
-            raise RuntimeError(f"Stale price ({age:.0f} seconds old); no trade")
-        usd = dec(price[0]["lastPrice"])
-        if usd <= 0:
+        last = dec(prices[0]["lastPrice"])
+        last_age = self._age_seconds(prices[0].get("timestamp"))
+        if last <= 0:
             raise RuntimeError("Invalid USD price")
-        return usd
+        if last_age is None or not -30 <= last_age <= 120:
+            age_label = "unknown" if last_age is None else f"{last_age:.0f}s"
+            book_label = "unknown" if book_age is None else f"{book_age:.0f}s"
+            raise RuntimeError(f"no fresh quote; last trade ${last} age={age_label}, orderbook age={book_label}; no trade")
+        return last, "last trade", last_age
 
-    def quote_krw(self):
-        usd = self.quote_usd()
+    @staticmethod
+    def _age_seconds(timestamp):
+        if not timestamp:
+            return None
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(timestamp.replace("Z", "+00:00"))).total_seconds()
+
+    def quote_krw(self, held=False):
+        usd, source, age = self.quote_usd(held)
         fx = self.call("GET", "/api/v1/exchange-rate", {
             "baseCurrency": "USD", "quoteCurrency": "KRW"
         })["result"]
@@ -176,7 +192,7 @@ class TossAPI:
         rate = dec(fx["rate"])
         if usd <= 0 or rate <= 0:
             raise RuntimeError("Invalid price or FX rate")
-        return usd, rate, usd * rate
+        return usd, rate, usd * rate, source, age
 
     def holding_quantity(self):
         result = self.call("GET", "/api/v1/holdings", {"symbol": "NVDL"})["result"]
@@ -255,13 +271,13 @@ def cycle(api, config, state):
     market_open = api.regular_market_open()
     try:
         if config.get("price_mode", "KRW_ESTIMATE") == "USD":
-            usd = api.quote_usd()
+            usd, source, age = api.quote_usd(held > 0)
             action = decision(usd, held > 0, config)
-            log(f"NVDL API price=${usd}; held={held}; action={action}")
+            log(f"NVDL API {source}=${usd} ({age:.0f}s old); held={held}; action={action}")
         else:
-            usd, rate, krw = api.quote_krw()
+            usd, rate, krw, source, age = api.quote_krw(held > 0)
             action = decision(krw, held > 0, config)
-            log(f"NVDL API estimate ${usd} × {rate} = ₩{krw:.0f}; held={held}; action={action}")
+            log(f"NVDL API {source} ${usd} ({age:.0f}s old) × {rate} = ₩{krw:.0f} estimate; held={held}; action={action}")
     except RuntimeError as exc:
         if market_open:
             raise
