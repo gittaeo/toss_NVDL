@@ -1,0 +1,9 @@
+{
+  "symbol": "NVDL",
+  "buy_min_krw": 40000,
+  "buy_max_krw": 40500,
+  "sell_min_krw": 50000,
+  "poll_seconds": 15,
+  "cash_buffer_percent": 1,
+  "live_trading": false
+}
