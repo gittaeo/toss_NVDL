@@ -48,6 +48,8 @@ def load_config():
         raise ValueError("poll_seconds must be at least 5.")
     if not isinstance(config.get("live_trading"), bool):
         raise ValueError("live_trading must be true or false.")
+    if config["live_trading"]:
+        raise RuntimeError("Live trading paused: the API USD-to-KRW estimate differs from the app KRW price.")
     config["cash_buffer_percent"] = buffer
     config["poll_seconds"] = interval
     return config

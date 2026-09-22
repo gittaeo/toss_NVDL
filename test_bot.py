@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -46,6 +47,17 @@ class FakeAPI:
 
 
 class BotTests(unittest.TestCase):
+    def test_live_mode_is_blocked_until_krw_price_is_verified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps({
+                "symbol": "NVDL", "buy_min_krw": 40000, "buy_max_krw": 40500,
+                "sell_min_krw": 50000, "live_trading": True
+            }), encoding="utf-8")
+            with patch.object(bot, "CONFIG_PATH", path):
+                with self.assertRaisesRegex(RuntimeError, "Live trading paused"):
+                    bot.load_config()
+
     def test_closed_market_waits_without_reading_stale_price(self):
         class ClosedAPI(FakeAPI):
             def regular_market_open(self):
