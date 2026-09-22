@@ -9,5 +9,6 @@
   "sell_min_usd": null,
   "poll_seconds": 15,
   "cash_buffer_percent": 1,
+  "accept_estimated_krw_price": false,
   "live_trading": false
 }

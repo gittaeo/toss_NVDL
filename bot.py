@@ -52,8 +52,8 @@ def load_config():
         raise ValueError("poll_seconds must be at least 5.")
     if not isinstance(config.get("live_trading"), bool):
         raise ValueError("live_trading must be true or false.")
-    if config["live_trading"] and mode != "USD":
-        raise RuntimeError("Live KRW trading paused: API USD conversion differs from the app KRW price.")
+    if config["live_trading"] and mode == "KRW_ESTIMATE" and config.get("accept_estimated_krw_price") is not True:
+        raise RuntimeError("Live KRW estimate requires accept_estimated_krw_price=true.")
     config["cash_buffer_percent"] = buffer
     config["poll_seconds"] = interval
     config["price_mode"] = mode
@@ -311,6 +311,11 @@ def main():
     api = TossAPI(client_id, client_secret, account_seq)
     api.resolve_account()
     state = load_state()
+    log(f"{'LIVE' if config['live_trading'] else 'DRY RUN'} mode; price source={config['price_mode']}; "
+        f"buy={config['buy_min_krw']}–{config['buy_max_krw']} KRW estimate; "
+        f"sell>={config['sell_min_krw']} KRW estimate" if config["price_mode"] == "KRW_ESTIMATE"
+        else f"{'LIVE' if config['live_trading'] else 'DRY RUN'} mode; price source=USD; "
+             f"buy=${config['buy_min_usd']}–${config['buy_max_usd']}; sell>=${config['sell_min_usd']}")
     while True:
         try:
             cycle(api, config, state)

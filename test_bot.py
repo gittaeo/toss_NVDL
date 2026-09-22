@@ -47,7 +47,7 @@ class FakeAPI:
 
 
 class BotTests(unittest.TestCase):
-    def test_live_mode_is_blocked_until_krw_price_is_verified(self):
+    def test_live_krw_estimate_requires_explicit_acknowledgment(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
             path.write_text(json.dumps({
@@ -55,8 +55,13 @@ class BotTests(unittest.TestCase):
                 "sell_min_krw": 50000, "live_trading": True
             }), encoding="utf-8")
             with patch.object(bot, "CONFIG_PATH", path):
-                with self.assertRaisesRegex(RuntimeError, "Live KRW trading paused"):
+                with self.assertRaisesRegex(RuntimeError, "requires accept_estimated_krw_price"):
                     bot.load_config()
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["accept_estimated_krw_price"] = True
+            path.write_text(json.dumps(data), encoding="utf-8")
+            with patch.object(bot, "CONFIG_PATH", path):
+                self.assertTrue(bot.load_config()["live_trading"])
 
     def test_usd_bands_use_api_dollars_without_rounding(self):
         config = {"price_mode": "USD", "buy_min_usd": "28.90",
