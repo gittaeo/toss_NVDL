@@ -55,8 +55,16 @@ class BotTests(unittest.TestCase):
                 "sell_min_krw": 50000, "live_trading": True
             }), encoding="utf-8")
             with patch.object(bot, "CONFIG_PATH", path):
-                with self.assertRaisesRegex(RuntimeError, "Live trading paused"):
+                with self.assertRaisesRegex(RuntimeError, "Live KRW trading paused"):
                     bot.load_config()
+
+    def test_usd_bands_use_api_dollars_without_rounding(self):
+        config = {"price_mode": "USD", "buy_min_usd": "28.90",
+                  "buy_max_usd": "29.25", "sell_min_usd": "36.10"}
+        self.assertEqual(bot.decision("28.89", False, config), "WAIT")
+        self.assertEqual(bot.decision("28.90", False, config), "BUY")
+        self.assertEqual(bot.decision("29.26", False, config), "WAIT")
+        self.assertEqual(bot.decision("36.10", True, config), "SELL")
 
     def test_closed_market_waits_without_reading_stale_price(self):
         class ClosedAPI(FakeAPI):

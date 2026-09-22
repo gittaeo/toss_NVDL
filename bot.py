@@ -36,8 +36,12 @@ def load_config():
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     if config.get("symbol") != "NVDL":
         raise ValueError("This bot is limited to NVDL.")
+    mode = config.get("price_mode", "KRW_ESTIMATE")
+    if mode not in {"KRW_ESTIMATE", "USD"}:
+        raise ValueError("price_mode must be KRW_ESTIMATE or USD")
+    suffix = "usd" if mode == "USD" else "krw"
     bands = [dec(config[key]) for key in
-             ("buy_min_krw", "buy_max_krw", "sell_min_krw")]
+             (f"buy_min_{suffix}", f"buy_max_{suffix}", f"sell_min_{suffix}")]
     if not (0 < bands[0] <= bands[1] < bands[2]):
         raise ValueError("Bands must be positive, ordered, and nonoverlapping.")
     buffer = dec(config.get("cash_buffer_percent", 1))
@@ -48,20 +52,25 @@ def load_config():
         raise ValueError("poll_seconds must be at least 5.")
     if not isinstance(config.get("live_trading"), bool):
         raise ValueError("live_trading must be true or false.")
-    if config["live_trading"]:
-        raise RuntimeError("Live trading paused: the API USD-to-KRW estimate differs from the app KRW price.")
+    if config["live_trading"] and mode != "USD":
+        raise RuntimeError("Live KRW trading paused: API USD conversion differs from the app KRW price.")
     config["cash_buffer_percent"] = buffer
     config["poll_seconds"] = interval
+    config["price_mode"] = mode
     return config
 
 
-def decision(price_krw, held, config):
-    price = dec(price_krw).to_integral_value(rounding=ROUND_FLOOR)
+def decision(price, held, config):
+    mode = config.get("price_mode", "KRW_ESTIMATE")
+    price = dec(price)
+    if mode == "KRW_ESTIMATE":
+        price = price.to_integral_value(rounding=ROUND_FLOOR)
+    suffix = "usd" if mode == "USD" else "krw"
     if held:
-        if dec(config["sell_min_krw"]) <= price:
+        if dec(config[f"sell_min_{suffix}"]) <= price:
             return "SELL"
         return "WAIT"
-    if dec(config["buy_min_krw"]) <= price <= dec(config["buy_max_krw"]):
+    if dec(config[f"buy_min_{suffix}"]) <= price <= dec(config[f"buy_max_{suffix}"]):
         return "BUY"
     return "WAIT"
 
@@ -141,7 +150,7 @@ class TossAPI:
         self.token = data["access_token"]
         self.expiry = time.time() + int(data["expires_in"])
 
-    def quote_krw(self):
+    def quote_usd(self):
         price = self.call("GET", "/api/v1/prices", {"symbols": "NVDL"})["result"]
         if len(price) != 1 or price[0].get("symbol", "").upper() != "NVDL" or price[0].get("currency") != "USD":
             raise RuntimeError("Unexpected NVDL price response")
@@ -151,13 +160,19 @@ class TossAPI:
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(timestamp.replace("Z", "+00:00"))).total_seconds()
         if age < -30 or age > 120:
             raise RuntimeError(f"Stale price ({age:.0f} seconds old); no trade")
+        usd = dec(price[0]["lastPrice"])
+        if usd <= 0:
+            raise RuntimeError("Invalid USD price")
+        return usd
+
+    def quote_krw(self):
+        usd = self.quote_usd()
         fx = self.call("GET", "/api/v1/exchange-rate", {
             "baseCurrency": "USD", "quoteCurrency": "KRW"
         })["result"]
         valid_until = datetime.fromisoformat(fx["validUntil"].replace("Z", "+00:00"))
         if datetime.now(timezone.utc) > valid_until:
             raise RuntimeError("Expired FX quote; no trade")
-        usd = dec(price[0]["lastPrice"])
         rate = dec(fx["rate"])
         if usd <= 0 or rate <= 0:
             raise RuntimeError("Invalid price or FX rate")
@@ -240,9 +255,14 @@ def cycle(api, config, state):
     if not api.regular_market_open():
         log("US regular session is closed or within its final hour; waiting")
         return
-    usd, rate, krw = api.quote_krw()
-    action = decision(krw, held > 0, config)
-    log(f"NVDL ${usd} × {rate} = ₩{krw:.0f}; held={held}; action={action}")
+    if config.get("price_mode", "KRW_ESTIMATE") == "USD":
+        usd = api.quote_usd()
+        action = decision(usd, held > 0, config)
+        log(f"NVDL API price=${usd}; held={held}; action={action}")
+    else:
+        usd, rate, krw = api.quote_krw()
+        action = decision(krw, held > 0, config)
+        log(f"NVDL API estimate ${usd} × {rate} = ₩{krw:.0f}; held={held}; action={action}")
     if action == "WAIT":
         return
     if action == "BUY":
@@ -280,8 +300,8 @@ def main():
     args = parser.parse_args()
     config = load_config()
     if args.simulate:
-        krw = dec(args.simulate[0]) * dec(args.simulate[1])
-        print(f"KRW estimate: {krw}; flat: {decision(krw, False, config)}; holding: {decision(krw, True, config)}")
+        value = dec(args.simulate[0]) if config["price_mode"] == "USD" else dec(args.simulate[0]) * dec(args.simulate[1])
+        print(f"Signal price ({config['price_mode']}): {value}; flat: {decision(value, False, config)}; holding: {decision(value, True, config)}")
         return
     client_id = os.environ.get("TOSS_CLIENT_ID")
     client_secret = os.environ.get("TOSS_CLIENT_SECRET")
