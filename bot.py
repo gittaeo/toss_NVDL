@@ -235,13 +235,13 @@ def cycle(api, config, state):
     if time.time() - state.get("last_fill_at", 0) < 120:
         log("Waiting for holdings to settle after a fill")
         return
+    if not api.regular_market_open():
+        log("US regular session is closed or within its final hour; waiting")
+        return
     usd, rate, krw = api.quote_krw()
     action = decision(krw, held > 0, config)
     log(f"NVDL ${usd} × {rate} = ₩{krw:.0f}; held={held}; action={action}")
     if action == "WAIT":
-        return
-    if not api.regular_market_open():
-        log("US regular session is closed or within its final hour; waiting")
         return
     if action == "BUY":
         buying_power = api.buying_power_usd()

@@ -46,6 +46,18 @@ class FakeAPI:
 
 
 class BotTests(unittest.TestCase):
+    def test_closed_market_waits_without_reading_stale_price(self):
+        class ClosedAPI(FakeAPI):
+            def regular_market_open(self):
+                return False
+
+            def quote_krw(self):
+                raise AssertionError("Should not request a quote outside the session")
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(bot, "STATE_PATH", Path(directory) / "state.json"):
+            with patch.object(bot, "log"):
+                bot.cycle(ClosedAPI(40000, 0), CONFIG, bot.load_state())
+
     def test_price_bands(self):
         expected = {
             39999: ("WAIT", "WAIT"),
