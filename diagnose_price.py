@@ -2,6 +2,7 @@
 
 import getpass
 import json
+import os
 from urllib import error, parse, request
 
 BASE = "https://openapi.tossinvest.com"
@@ -17,8 +18,10 @@ def fetch(path, token, params=None):
 
 
 def main():
-    client_id = input("Toss client ID: ").strip()
-    client_secret = getpass.getpass("Toss client secret: ")
+    client_id = os.environ.get("TOSS_CLIENT_ID") or input("Toss client ID: ").strip()
+    client_secret = os.environ.get("TOSS_CLIENT_SECRET") or getpass.getpass("Toss client secret: ")
+    if not client_id or not client_secret:
+        raise SystemExit("Client ID and secret are required; no orders were submitted")
     body = parse.urlencode({"grant_type": "client_credentials",
                             "client_id": client_id,
                             "client_secret": client_secret}).encode("ascii")

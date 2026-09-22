@@ -2,7 +2,7 @@
 
 토스증권 공식 Open API를 사용하는 Python 3.10+ 프로그램입니다. **실거래는 현재 일시 중단**했습니다. API 달러 시세를 원화로 환산한 값과 토스증권 앱의 원화 가격이 달라 원화 조건을 안전하게 적용할 수 없는 상태입니다. `live_trading`을 `true`로 바꾸면 오류와 함께 종료됩니다.
 
-원화 가격 출처를 확인하려면 `python diagnose_price.py`를 실행하세요. 이 도구는 공개 시세만 조회하고 주문이나 계좌 조회를 하지 않습니다. 출력에는 API 키가 포함되지 않습니다.
+원화 가격 출처를 확인하려면 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\diagnose_price.ps1`를 실행하세요. 이 도구는 공개 시세만 조회하고 주문이나 계좌 조회를 하지 않습니다. 출력에는 API 키가 포함되지 않습니다.
 
 ## 전략
 
