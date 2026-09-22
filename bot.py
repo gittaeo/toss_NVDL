@@ -252,17 +252,24 @@ def cycle(api, config, state):
     if time.time() - state.get("last_fill_at", 0) < 120:
         log("Waiting for holdings to settle after a fill")
         return
-    if not api.regular_market_open():
-        log("US regular session is closed or within its final hour; waiting")
+    market_open = api.regular_market_open()
+    try:
+        if config.get("price_mode", "KRW_ESTIMATE") == "USD":
+            usd = api.quote_usd()
+            action = decision(usd, held > 0, config)
+            log(f"NVDL API price=${usd}; held={held}; action={action}")
+        else:
+            usd, rate, krw = api.quote_krw()
+            action = decision(krw, held > 0, config)
+            log(f"NVDL API estimate ${usd} × {rate} = ₩{krw:.0f}; held={held}; action={action}")
+    except RuntimeError as exc:
+        if market_open:
+            raise
+        log(f"US regular session closed; fresh quote unavailable ({exc}); waiting")
         return
-    if config.get("price_mode", "KRW_ESTIMATE") == "USD":
-        usd = api.quote_usd()
-        action = decision(usd, held > 0, config)
-        log(f"NVDL API price=${usd}; held={held}; action={action}")
-    else:
-        usd, rate, krw = api.quote_krw()
-        action = decision(krw, held > 0, config)
-        log(f"NVDL API estimate ${usd} × {rate} = ₩{krw:.0f}; held={held}; action={action}")
+    if not market_open:
+        log("US regular session is closed or within its final hour; no order")
+        return
     if action == "WAIT":
         return
     if action == "BUY":

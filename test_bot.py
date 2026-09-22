@@ -71,17 +71,31 @@ class BotTests(unittest.TestCase):
         self.assertEqual(bot.decision("29.26", False, config), "WAIT")
         self.assertEqual(bot.decision("36.10", True, config), "SELL")
 
-    def test_closed_market_waits_without_reading_stale_price(self):
+    def test_closed_market_shows_price_but_never_orders(self):
         class ClosedAPI(FakeAPI):
             def regular_market_open(self):
                 return False
 
+        with tempfile.TemporaryDirectory() as directory, patch.object(bot, "STATE_PATH", Path(directory) / "state.json"):
+            api = ClosedAPI(40000, 0)
+            with patch.object(bot, "log") as log:
+                bot.cycle(api, CONFIG, bot.load_state())
+            self.assertTrue(any("₩40000" in str(call) for call in log.call_args_list))
+            self.assertTrue(any("no order" in str(call) for call in log.call_args_list))
+            self.assertEqual(api.orders_sent, [])
+
+    def test_closed_market_stale_quote_waits(self):
+        class StaleAPI(FakeAPI):
+            def regular_market_open(self):
+                return False
+
             def quote_krw(self):
-                raise AssertionError("Should not request a quote outside the session")
+                raise RuntimeError("Stale price")
 
         with tempfile.TemporaryDirectory() as directory, patch.object(bot, "STATE_PATH", Path(directory) / "state.json"):
-            with patch.object(bot, "log"):
-                bot.cycle(ClosedAPI(40000, 0), CONFIG, bot.load_state())
+            with patch.object(bot, "log") as log:
+                bot.cycle(StaleAPI(40000, 0), CONFIG, bot.load_state())
+            self.assertTrue(any("fresh quote unavailable" in str(call) for call in log.call_args_list))
 
     def test_price_bands(self):
         expected = {
